@@ -93,22 +93,6 @@ func getEcho() *echo.Echo {
 	// Log all requests
 	e.Use(echomiddleware.Logger())
 
-	// set gateway router
-	gatewayConf, err := gwconf.LoadConfig("configs/application.yaml")
-	if err != nil {
-		log.Fatalf("Failed to load gateway config: %s", err)
-	}
-	for _, route := range gatewayConf.Gateway.Routes {
-		for _, predicate := range route.Predicates {
-			if strings.HasPrefix(predicate, "Path=") {
-				pathPrefix := strings.TrimPrefix(predicate, "Path=")
-				routerGroup := e.Group(pathPrefix)
-				// log.Println("route.URI: ", route.URI)
-				routerGroup.Any("*", echo.WrapHandler(gwroute.ProxyHandler(route.URI)))
-			}
-		}
-	}
-
 	// Read configuration file
 	cfg, err := config.ReadKeycloakConfigFile("configs")
 	if err != nil {
@@ -183,6 +167,22 @@ func getEcho() *echo.Echo {
 	group = e.Group("/capif-security/v1")
 	group.Use(middleware.OapiRequestValidator(securitySwagger))
 	securityapi.RegisterHandlersWithBaseURL(e, securityService, "/capif-security/v1")
+
+	// set gateway router
+	gatewayConf, err := gwconf.LoadConfig("configs/application.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load gateway config: %s", err)
+	}
+	for _, route := range gatewayConf.Gateway.Routes {
+		for _, predicate := range route.Predicates {
+			if strings.HasPrefix(predicate, "Path=") {
+				pathPrefix := strings.TrimPrefix(predicate, "Path=")
+				routerGroup := e.Group(pathPrefix)
+				// log.Println("route.URI: ", route.URI)
+				routerGroup.Any("*", echo.WrapHandler(gwroute.ProxyHandler(publishService, eventService, route.URI)))
+			}
+		}
+	}
 
 	e.GET("/", hello)
 

@@ -25,7 +25,6 @@ import (
 	"log"
 	"net/http"
 	"path"
-	"strings"
 	"sync"
 
 	"oransc.org/nonrtric/capifcore/internal/eventsapi"
@@ -107,6 +106,17 @@ func (im *InvokerManager) GetInvokerApiList(invokerId string) *invokerapi.APILis
 		return &apiList
 	}
 	return nil
+}
+
+func (im *InvokerManager) GetInvokerList(ctx echo.Context) error {
+	im.lock.Lock()
+	defer im.lock.Unlock()
+	var invokersList []invokerapi.APIInvokerEnrolmentDetails
+
+	for _, invoker := range im.onboardedInvokers {
+		invokersList = append(invokersList, invoker)
+	}
+	return ctx.JSON(http.StatusOK, invokersList)
 }
 
 // Creates a new individual API Invoker profile.
@@ -270,65 +280,5 @@ func sendCoreError(ctx echo.Context, code int, message string) error {
 	return err
 }
 
-func (im *InvokerManager) PostRegister(ctx echo.Context) error {
-	var payload UserRegistrationRequest
-	if err := ctx.Bind(&payload); err != nil {
-		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request"})
-	}
-	// 生成令牌
-	tokenString := authenticator.GenerateToken()
-	// if err != nil {
-	// 	log.Printf("Failed to generate token: %v", err)
-	// 	return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to generate token"})
-	// }
-
-	// 返回令牌
-	return ctx.JSON(http.StatusCreated, map[string]string{"token": tokenString})
-}
-
-func (im *InvokerManager) GetGetAllInvoker(ctx echo.Context) error {
-	// authHeader := ctx.Request().Header.Get("Authorization")
-	// if authHeader == "" {
-	// 	return sendCoreError(ctx, http.StatusUnauthorized, "Missing Authorization header")
-	// }
-	// splitToken := strings.Split(authHeader, "Bearer")
-	// if len(splitToken) != 2 {
-	// 	return sendCoreError(ctx, http.StatusUnauthorized, "Invalid Authorization header format")
-	// }
-	// tokenString := splitToken[1]
-	// log.Println("tokenString: ", tokenString)
-	// _, err := authenticator.ValidateUserCredential(tokenString)
-	// if err != nil {
-	// 	return sendCoreError(ctx, http.StatusUnauthorized, fmt.Sprintf("Invalid token: %s", err.Error()))
-	// }
-
-	authHeader := ctx.Request().Header.Get("Authorization")
-	if authHeader == "" {
-		return sendCoreError(ctx, http.StatusUnauthorized, "Missing Authorization header")
-	}
-	splitToken := strings.Split(authHeader, "Bearer ")
-	if len(splitToken) != 2 {
-		return sendCoreError(ctx, http.StatusUnauthorized, "Invalid Authorization header format")
-	}
-	tokenString := strings.TrimSpace(splitToken[1])
-
-	isValid, err := authenticator.ValidateToken(tokenString)
-	if err != nil || !isValid {
-		return sendCoreError(ctx, http.StatusUnauthorized, "Invalid token")
-	}
-
-	im.lock.Lock()
-	defer im.lock.Unlock()
-
-	var invokers []invokerapi.APIInvokerEnrolmentDetails
-	for _, invoker := range im.onboardedInvokers {
-		invokers = append(invokers, invoker)
-		// log.Println("Invoker ID: ", *invoker.ApiInvokerId)
-	}
-
-	if err := ctx.JSON(http.StatusOK, invokers); err != nil {
-		// Handle the error if JSON marshaling or response sending fails
-		return sendCoreError(ctx, http.StatusInternalServerError, "Failed to send invokers")
-	}
-	return nil
-}
+// API invoker invoke service api時的驗證
+// func (im *InvokerManager) ValidateAPIRequest()

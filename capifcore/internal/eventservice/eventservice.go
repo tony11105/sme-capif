@@ -23,10 +23,16 @@ package eventservice
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+
 	"net/http"
 	"path"
 	"strconv"
 	"sync"
+
+	"oransc.org/nonrtric/capifcore/internal/publishservice"
+
+	"oransc.org/nonrtric/capifcore/pkg/authenticator"
 
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
@@ -69,18 +75,26 @@ func (es *EventService) GetNotificationChannel() chan<- eventsapi.EventNotificat
 }
 
 func (es *EventService) PostSubscriberIdSubscriptions(ctx echo.Context, subscriberId string) error {
+	// log.Println("subscribe Id: ", subscriberId)
 	newSubscription, err := getEventSubscriptionFromRequest(ctx)
 	errMsg := "Unable to register subscription due to %s."
 	if err != nil {
+		log.Println("getEventSubscriptionFromRequest")
 		return sendCoreError(ctx, http.StatusBadRequest, fmt.Sprintf(errMsg, err))
 	}
 
 	if err := newSubscription.Validate(); err != nil {
+		log.Println("newSubscription.Validate")
 		return sendCoreError(ctx, http.StatusBadRequest, fmt.Sprintf(errMsg, err))
 	}
 
 	uri := ctx.Request().Host + ctx.Request().URL.String()
 	subId := es.getSubscriptionId(subscriberId)
+	validateApiId := publishservice.ValidatePublishApiId(getFiliterApiId(newSubscription))
+	if validateApiId == false {
+		return sendCoreError(ctx, http.StatusBadRequest, "eventservice vailate ApiId error due to no match api id or this api no pulish")
+	}
+	newSubscription.SubscriberId, err = authenticator.GenerateSubscribeToken(getFiliterApiId(newSubscription))
 	es.addSubscription(subId, newSubscription)
 	ctx.Response().Header().Set(echo.HeaderLocation, ctx.Scheme()+`://`+path.Join(uri, subId))
 	err = ctx.JSON(http.StatusCreated, newSubscription)
@@ -100,6 +114,25 @@ func (es *EventService) DeleteSubscriberIdSubscriptionsSubscriptionId(ctx echo.C
 	}
 
 	return ctx.NoContent(http.StatusNoContent)
+}
+
+func (es *EventService) GetGetAllSubscriptions(ctx echo.Context) error {
+	es.lock.Lock()
+	defer es.lock.Unlock()
+
+	// 創建一個切片來保存所有訂閱
+	subscriptions := make([]eventsapi.EventSubscription, 0, len(es.subscriptions))
+	for subId, subscription := range es.subscriptions {
+		log.Println("Subscription ID:", subId)
+		subscriptions = append(subscriptions, subscription)
+	}
+
+	// 將訂閱列表作為 JSON 響應發送
+	if err := ctx.JSON(http.StatusOK, subscriptions); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to send subscriptions")
+	}
+
+	return nil
 }
 
 func (es *EventService) deleteSubscription(subscriptionId string) {
@@ -244,4 +277,31 @@ func sendCoreError(ctx echo.Context, code int, message string) error {
 	}
 	err := ctx.JSON(code, pd)
 	return err
+}
+
+func getFiliterApiId(es eventsapi.EventSubscription) string {
+	// log.Println("matchesSubscriberId")
+	var ApiId string
+	for _, filiter := range *es.EventFilters {
+		if filiter.ApiIds != nil {
+			// log.Println("ApiIds: ", *filiter.ApiIds)
+			ApiId = strings.Join(*filiter.ApiIds, "")
+			// log.Println("ApiIds: ", ApiId)
+		}
+	}
+
+	return ApiId
+}
+
+func ValidateAPIRequest(token, apiId string) bool {
+	// var test EventService
+	// log.Panicln("subscriberId: ", subscriberId)
+
+	_, err := authenticator.ValidateSubscribeToken(token, apiId)
+	if err != nil {
+		log.Println("Error validating token:", err)
+		return false
+	}
+	// log.Println("Token is valid:", token.Valid)
+	return true
 }

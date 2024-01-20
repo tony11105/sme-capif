@@ -126,6 +126,7 @@ type EventNotification struct {
 
 // Represents an individual CAPIF Event Subscription resource.
 type EventSubscription struct {
+	SubscriberId string `json:"subscriberId,omitempty"`
 	// Subscribed event filters
 	EventFilters *[]CAPIFEventFilter `json:"eventFilters,omitempty"`
 

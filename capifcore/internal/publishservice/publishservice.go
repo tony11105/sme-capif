@@ -22,6 +22,8 @@ package publishservice
 
 import (
 	"fmt"
+	"regexp"
+
 	"net/http"
 	"path"
 	"strings"
@@ -39,6 +41,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 )
+
+var publishedApiIds []string // 全域變數，用於存儲已發布的 apiId
 
 //go:generate mockery --name PublishRegister
 type PublishRegister interface {
@@ -153,7 +157,7 @@ func (ps *PublishService) PostApfIdServiceApis(ctx echo.Context, apfId string) e
 	} else {
 		ps.publishedServices[apfId] = append([]publishapi.ServiceAPIDescription{}, newServiceAPIDescription)
 	}
-
+	publishedApiIds = append(publishedApiIds, *newServiceAPIDescription.ApiId)
 	uri := ctx.Request().Host + ctx.Request().URL.String()
 	ctx.Response().Header().Set(echo.HeaderLocation, ctx.Scheme()+`://`+path.Join(uri, *newServiceAPIDescription.ApiId))
 	err = ctx.JSON(http.StatusCreated, newServiceAPIDescription)
@@ -198,6 +202,12 @@ func (ps *PublishService) DeleteApfIdServiceApisServiceApiId(ctx echo.Context, a
 			if len(info) == 5 {
 				ps.helmManager.UninstallHelmChart(info[1], info[3])
 				log.Debug("Deleted service: ", serviceApiId)
+			}
+			for i, id := range publishedApiIds {
+				if id == serviceApiId {
+					publishedApiIds = append(publishedApiIds[:i], publishedApiIds[i+1:]...)
+					break
+				}
 			}
 			ps.lock.Lock()
 			ps.publishedServices[string(apfId)] = removeServiceDescription(pos, serviceDescriptions)
@@ -338,4 +348,61 @@ func sendCoreError(ctx echo.Context, code int, message string) error {
 	}
 	err := ctx.JSON(code, pd)
 	return err
+}
+
+func (ps *PublishService) matchesApiendpoint(apiEndpoint string) bool {
+	ps.lock.Lock()
+	defer ps.lock.Unlock()
+	for _, services := range ps.publishedServices {
+		for _, service := range services {
+			if service.AefProfiles != nil {
+				for _, profile := range *service.AefProfiles {
+					for _, version := range profile.Versions {
+						for _, resource := range *version.Resources {
+							log.Println("resource.Uri: ", resource.Uri)
+							pattern := convertUriToRegex(resource.Uri)
+							matched, err := regexp.MatchString(pattern, apiEndpoint)
+							if err != nil {
+								log.Printf("Error matching pattern: %s", err)
+								continue
+							}
+							if matched {
+								log.Printf("Match found - Service API ID: %s, Version: %s, Resource URI: %s\n", *service.ApiId, version.ApiVersion, resource.Uri)
+								return true
+							}
+						}
+					}
+				}
+			} else {
+				log.Printf("Service API ID: %s has no AEF Profiles\n", *service.ApiId)
+			}
+		}
+	}
+	return false
+}
+
+func ValidateApiEndpoint(ps *PublishService, apiEndpoint string) bool {
+	var validate bool
+	validate = ps.matchesApiendpoint(apiEndpoint)
+	return validate
+}
+
+func convertUriToRegex(uri string) string {
+	escaped := regexp.QuoteMeta(uri)
+	return regexp.MustCompile(`\\\{[^}]+\\\}`).ReplaceAllString(escaped, "[^/]+")
+}
+
+func ValidatePublishApiId(apiId string) bool {
+	var validate bool
+	validate = matchesApiId(apiId)
+	return validate
+}
+
+func matchesApiId(apiId string) bool {
+	for _, id := range publishedApiIds {
+		if id == apiId {
+			return true
+		}
+	}
+	return false
 }

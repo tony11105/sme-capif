@@ -9,13 +9,13 @@ gateway:
       predicates:
         - Path=/data-producer
         - Path=/data-consumer
-    # - id: Test
-    #   uri: https://localhost:8080
-    #   predicates:
-    #     - Path=/hello
-    #     - Path=/hello
-    # - id: HttpTest
-    #   uri: http://localhost:50123
-    #   predicates:
-    #     - Path=/httphello
-    #     - Path=/httphello
+    - id: Test
+      uri: https://localhost:8080
+      predicates:
+        - Path=/hello
+        - Path=/hello
+    - id: HttpTest
+      uri: http://localhost:50123
+      predicates:
+        - Path=/httphello
+        - Path=/httphello
